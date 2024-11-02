@@ -11,6 +11,10 @@ from torchvision.models import resnet18, ResNet18_Weights
 from torchvision.models import resnet50, ResNet50_Weights
 from torchvision.models import densenet121, DenseNet121_Weights
 import pretrainedmodels
+from vit_pytorch import ViT
+from transformers import ViTForImageClassification
+
+import torchvision.models as models
 
 from torch import nn
 from tqdm.autonotebook import tqdm
@@ -25,6 +29,7 @@ parser.add_argument("-t", "--train_model", action="store_true")
 parser.add_argument("-p", "--predict_model", action="store_true")
 parser.add_argument("-d", "--data", type=str, default="data.pkl")
 parser.add_argument("-e", "--epochs", type=int, default=100)
+parser.add_argument("-b", "--batch_size", type=int, default=64)
 parser.add_argument("-cp", "--checkpoint_path", type=str, default="models/best.pt")
 parser.add_argument("-op", "--output_path", type=str, default="output.csv")
 parser.add_argument("-od", "--output_dir", type=str, default="data")
@@ -51,10 +56,10 @@ freeze_layers = args.freeze_layers
 
 df = pd.read_pickle(args.data)
 train_dataset = df[df["trainTestNum"] == 0].copy()
-# train_x, eval_x, train_y, eval_y = train_test_split(train_dataset, train_dataset["failureNum"], test_size=0.05, random_state=42)
+train_x, eval_x, train_y, eval_y = train_test_split(train_dataset, train_dataset["failureNum"], test_size=0.25, random_state=42)
 test_dataset = df[df["trainTestNum"] == 1].copy()
 
-train_x, eval_x, train_y, eval_y = train_test_split(df, df["failureNum"], test_size=0.25, random_state=1)
+# train_x, eval_x, train_y, eval_y = train_test_split(df, df["failureNum"], test_size=0.25, random_state=1)
 
 def transform_image(input_image):
     # pil_image = Image.fromarray(input_image * 255 / 2)
@@ -119,6 +124,29 @@ elif args.model_index == 3:
     else: 
         num_features = model.fc.in_features
         model.fc = nn.Linear(num_features , num_classes)
+elif args.model_index == 4:
+    model = ViT(
+        image_size=args.image_size, 
+        patch_size=32, 
+        num_classes=num_classes, 
+        dim=1024, 
+        depth=6, 
+        heads=8, 
+        mlp_dim=2048, 
+        dropout=0.1, 
+        emb_dropout=0.1 
+    )
+elif args.model_index == 5:
+    model = ViTForImageClassification.from_pretrained(
+        "vit-huge-patch14-224-in21k", 
+        image_size=args.image_size,
+        num_labels=num_classes, 
+        local_files_only=True
+    )
+elif args.model_index == 6:
+    model = models.vit_b_16(weights='IMAGENET1K_V1')
+    hidden_dim = model.heads.head.in_features
+    model.heads.head = nn.Linear(hidden_dim, num_classes)
 
 model = model.to(device)
 
@@ -153,10 +181,10 @@ if train_model:
 
     cnt = 0
     for param in model.parameters():
-        param.requires_grad = False
-        cnt += 1
         if cnt == freeze_layers:
             break
+        param.requires_grad = False
+        cnt += 1
 
     optimizer = torch.optim.Adam(model.parameters(),lr=learning_rate)
     loss_fn = nn.CrossEntropyLoss(weight=loss_weight)
